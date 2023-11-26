@@ -1,15 +1,22 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022 esp32beans@gmail.com
+# SPDX-FileCopyrightText: Copyright (c) 2023 Leon Anavi <leon@anavi.org>
 #
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
-""" Convert Wii Nunchuk to USB mouse with two buttons. """
+""" Convert Wii Nunchuk to a USB Joystick or a USB mouse with two buttons. """
 
 import array
 import math
 import board
+import busio
 import adafruit_nunchuk
+import digitalio
+from hid_joystick import Joystick
+from adafruit_seesaw.seesaw import Seesaw
+from adafruit_seesaw.digitalio import DigitalIO
+from adafruit_seesaw.pwmout import PWMOut
 import usb_hid
 import neopixel
+import json
 
 from adafruit_hid.mouse import Mouse
 
@@ -18,14 +25,10 @@ DEADZONE = 5
 X_SPEED = 3.0   # Also known as sensitivity
 Y_SPEED = 3.0   # Also known as sensitivity
 
-
-
-def handle():
+def handleMouse():
     
     mouse = Mouse(usb_hid.devices)
     
-    nc = adafruit_nunchuk.Nunchuk(i2c)
-
     # Experiment with mouse acceleration/sensitivity. For small deflections of the
     # joystick move the mouse slowly. For larger deflections, move the mouse
     # faster. The look up table is computed outside the main loop to avoid calling
@@ -105,6 +108,23 @@ def handle():
         
         pixel.fill((0, 255, 0))
 
+def handleJoystick():
+
+    js = Joystick(usb_hid.devices)
+
+    while True:
+        x, y = nc.joystick
+        y = 255 - y
+        js.move_joysticks(x, y)
+
+        if nc.buttons.Z:
+            js.press_buttons(1)
+        else:
+            js.release_buttons(1)
+        if nc.buttons.C:
+            js.press_buttons(2)
+        else:
+            js.release_buttons(2)
 
 pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 pixel.brightness = 0.01
@@ -116,9 +136,17 @@ while True:
         i2c.try_lock()
         i2c.scan()
         i2c.unlock()
-                
-        handle()
-        
+
+        nc = adafruit_nunchuk.Nunchuk(i2c)
+
+        with open("config.json") as f:
+            data = f.read()
+            config = json.loads(data)
+            if "joystick" == config["type"]:
+                handleJoystick()
+            elif "mouse" == config["type"]:
+                handleMouse()
+
     except RuntimeError as e:
         pixel.fill((255, 0, 0))
         print("Error: ", e)

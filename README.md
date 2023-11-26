@@ -16,7 +16,7 @@ pip3 install circup
 With circup` installed and your CircuitPython device connected use the following command to install:
 
 ```
-circup install adafruit_bus_device adafruit_hid adafruit_nunchuk
+circup install adafruit_bus_device adafruit_hid adafruit_nunchuk adafruit_seesaw
 ```
 
 Or the following command to update an existing version:
