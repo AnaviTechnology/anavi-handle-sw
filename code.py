@@ -126,6 +126,8 @@ def handleJoystick():
         else:
             js.release_buttons(2)
 
+        pixel.fill((0, 255, 0))
+
 pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 pixel.brightness = 0.01
 
