@@ -1,7 +1,7 @@
 import json
 import usb_hid
 
-# Joystck with 8 buttons and 2 8-bit axes
+# Joystick with 8 buttons and 2 8-bit axes
 JOYSTICK_REPORT_DESCRIPTOR = bytes((
     0x05, 0x01,  # Usage Page (Generic Desktop Ctrls)
     0x09, 0x04,  # Usage (Joystick)
