@@ -44,3 +44,5 @@ with open("config.json") as f:
         usb_hid.enable((joystick,))
     elif "mouse" == config["type"]:
         usb_hid.enable((usb_hid.Device.MOUSE,))
+    elif "keyboard" == config["type"]:
+        usb_hid.enable((usb_hid.Device.KEYBOARD,))
