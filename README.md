@@ -14,8 +14,18 @@ ANAVI Handle is an open source hardware project designed with [KiCad](https://ww
 
 ## Installing to a Connected ANAVI Handle with Circup
 
-Make sure that you have ``circup`` installed in your Python environment.
-Install it with the following command if necessary:
+Make sure that you have ``circup`` installed in your Python environment. On Ubuntu 24.04 you can setup a virtual environment for Python3 as follows:
+
+```
+sudo apt update
+sudo apt install python3-pip
+sudo apt install python3-virtualenv
+sudo apt install python3.12-venv
+python3 -m venv test_env ~/env
+source ~/env/bin/activate
+```
+
+Install ``circup`` with the following command if necessary:
 
 ```
 pip3 install circup
