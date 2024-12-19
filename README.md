@@ -3,9 +3,11 @@
 
 # Changes
 
-**Adjust sensitivity:** Hold both buttons for a few seconds, then turn the nunchuk left or right to change mouse sensitivity
-**Bugfixes:** nunchuk used to break after a while; mouse would only move in positive x or y directions
-**Scrolling:** tap both buttons at the same time to enter **SCROLL MODE**. The original creators did not use the accelerometer, but after looking thru the original Nintendo specs, I was able to hook this up to scrolling.
+- **Adjust sensitivity:** Hold both buttons for a few seconds, then turn the nunchuk left or right to change mouse sensitivity
+
+- **Bugfixes:** nunchuk used to break after a while; mouse would only move in positive x or y directions
+
+- **Scrolling:** tap both buttons at the same time to enter **SCROLL MODE**. The original creators did not use the accelerometer, but after looking thru the original Nintendo specs, I was able to hook this up to scrolling.
 
 
 # Rest of info:
