@@ -1,9 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 Leon Anavi <leon@anavi.org>
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
-""" Convert Wii Nunchuk to a USB Joystick or a USB mouse with two buttons. """
-
 import array
 import math
 import time
@@ -23,197 +17,156 @@ from adafruit_hid.mouse import Mouse
 from adafruit_hid.keyboard import Keyboard
 from adafruit_hid.keycode import Keycode
 
-JS_DEBUG = 0
-DEADZONE = 5
-X_SPEED = 3.0   # Also known as sensitivity
-Y_SPEED = 3.0   # Also known as sensitivity
+JS_DEBUG = 1
+DEADZONE = 10
+X_SPEED = 2.0
+Y_SPEED = 2.0
 
 def handleMouse():
-    
     mouse = Mouse(usb_hid.devices)
     
-    # Experiment with mouse acceleration/sensitivity. For small deflections of the
-    # joystick move the mouse slowly. For larger deflections, move the mouse
-    # faster. The look up table is computed outside the main loop to avoid calling
-    # time consuming the math function on every loop. The X and Y tables use the
-    # same values but could use different values.
-    X_ACCEL = array.array('B')
-    Y_ACCEL = array.array('B')
+    # Take initial readings to establish baseline
+    print("Calibrating - hold nunchuk still...")
+    baseline_ax = 0
+    baseline_ay = 0
+    baseline_az = 0
+    samples = 0
     
-    for x in range(128):
-        if x <= DEADZONE:
-            # Dead zone around center to fix drift.
-            # Joysticks do not alway report (x=0,y=0) when the stick is released.
-            # When this happens the cursor moves slowly when it should not be moving.
-            # This is sometimes called drifting. Drifting is fixed by treating
-            # joystick values between -DEADZONE to +DEADZONE as 0. If the cursor is
-            # still drifting increase the value of DEADZONE.
-            X_ACCEL.append(0)
-            Y_ACCEL.append(0)
-        else:
-            X_ACCEL.append(int((math.pow(x/127.0, X_SPEED) * 127) + 0.5))
-            Y_ACCEL.append(int((math.pow(x/127.0, Y_SPEED) * 127) + 0.5))
-            if x > 0:
-                if X_ACCEL[x] == 0:
-                    X_ACCEL[x] = 1
-                if Y_ACCEL[x] == 0:
-                    Y_ACCEL[x] = 1
-        if JS_DEBUG:
-            print(x, X_ACCEL[x], Y_ACCEL[x])
-
-    # The index into this array goes from 0 to 128 so make the last element
-    # have the same value as the element 127.
-    X_ACCEL.append(X_ACCEL[127])
-    Y_ACCEL.append(Y_ACCEL[127])
-
-    LAST_JS_X = 255
-    LAST_JS_Y = 255
-
+    # Average 10 readings for baseline
+    while samples < 10:
+        try:
+            ax, ay, az = nc.acceleration
+            baseline_ax += ax
+            baseline_ay += ay
+            baseline_az += az
+            samples += 1
+            time.sleep(0.1)
+        except:
+            continue
+    
+    baseline_ax //= 10
+    baseline_ay //= 10
+    baseline_az //= 10
+    
+    print(f"Calibrated - Baseline: ({baseline_ax}, {baseline_ay}, {baseline_az})")
+    
+    # Movement parameters
+    ACCEL_THRESHOLD = 60
+    ACCEL_SCALE = 0.2
+    SCROLL_SCALE = 0.05
+    MIN_SCALE = 0.05
+    MAX_SCALE = 0.4
+    
+    # Smoothing parameters
+    last_x = 0
+    last_y = 0
+    smooth_factor = 0.75
+    
+    # Mode control variables
+    scroll_enabled = True  # Start with scroll enabled
+    sens_adjust_mode = False
+    both_buttons_start = 0
+    LONG_PRESS_TIME = 0.5  # Time in seconds to hold both buttons
+    
     while True:
-        x, y = nc.joystick
-        if JS_DEBUG:
-            js_x = x
-            js_y = y
-        # Map the range 0 to 255 from the joystick to -127 to 128 for the mouse.
-        x = x - 127
-        y = -(y - 127)
-        if JS_DEBUG:
-            signed_x = x
-            signed_y = y
+        try:
+            x, y = nc.joystick
+            ax, ay, az = nc.acceleration
+            
+            # Calculate relative movement from baseline
+            delta_ax = ax - baseline_ax
+            delta_ay = ay - baseline_ay
+            
+            # Handle dual button press
+            both_pressed = nc.buttons.C and nc.buttons.Z
+            if both_pressed:
+                if both_buttons_start == 0:  # Just pressed
+                    both_buttons_start = time.monotonic()
+                elif time.monotonic() - both_buttons_start > LONG_PRESS_TIME:
+                    sens_adjust_mode = True
+            else:
+                if both_buttons_start > 0:  # Just released
+                    if time.monotonic() - both_buttons_start <= LONG_PRESS_TIME:
+                        scroll_enabled = not scroll_enabled
+                        print(f"Scroll {'enabled' if scroll_enabled else 'disabled'}")
+                    sens_adjust_mode = False
+                both_buttons_start = 0
+            
+            # Adjust sensitivity if in sens_adjust_mode
+            if sens_adjust_mode:
+                if abs(delta_ax) > ACCEL_THRESHOLD:
+                    adjustment = (delta_ax - (ACCEL_THRESHOLD if delta_ax > 0 else -ACCEL_THRESHOLD)) * 0.0001
+                    ACCEL_SCALE = max(MIN_SCALE, min(MAX_SCALE, ACCEL_SCALE + adjustment))
+                    print(f"Sensitivity: {ACCEL_SCALE:.3f}")
+                pixel.fill((255, 255, 0))  # Yellow for sensitivity adjustment mode
+                continue  # Skip other processing while adjusting sensitivity
+            
+            # Use joystick for mouse movement
+            mouse_x = 0
+            mouse_y = 0
+            
+            if abs(x - 128) > DEADZONE:
+                mouse_x = int((x - 128) * ACCEL_SCALE)
+                mouse_x = int(mouse_x * (1 - smooth_factor) + last_x * smooth_factor)
+            else:
+                mouse_x = 0
+                last_x = 0  # Force reset when returning to center
 
-        if x < 0:
-            x = -X_ACCEL[abs(x)]
-        else:
-            x = X_ACCEL[abs(x)]
+            if abs(y - 128) > DEADZONE:
+                mouse_y = int(-(y - 128) * ACCEL_SCALE)
+                mouse_y = int(mouse_y * (1 - smooth_factor) + last_y * smooth_factor)
+            else:
+                mouse_y = 0
+                last_y = 0  # Force reset when returning to center
 
-        if y < 0:
-            y = -Y_ACCEL[abs(y)]
-        else:
-            y = Y_ACCEL[abs(y)]
-        if JS_DEBUG:
-            sensitivity_x = x
-            sensitivity_y = y
-
-        if JS_DEBUG and (LAST_JS_X != js_x or LAST_JS_Y != js_y):
-            print(js_x, js_y, signed_x, signed_y, sensitivity_x, sensitivity_y)
-            LAST_JS_X = js_x
-            LAST_JS_Y = js_y
-        mouse.move(x, y)
-
-        if nc.buttons.C:
-            mouse.press(Mouse.LEFT_BUTTON)
-        else:
-            mouse.release(Mouse.LEFT_BUTTON)
-        if nc.buttons.Z:
-            mouse.press(Mouse.RIGHT_BUTTON)
-        else:
-            mouse.release(Mouse.RIGHT_BUTTON)
-        
-        pixel.fill((0, 255, 0))
-
-def handleKeyboard():
-
-    kbd = Keyboard(usb_hid.devices)
-
-    # Experiment with mouse acceleration/sensitivity. For small deflections of the
-    # joystick move the mouse slowly. For larger deflections, move the mouse
-    # faster. The look up table is computed outside the main loop to avoid calling
-    # time consuming the math function on every loop. The X and Y tables use the
-    # same values but could use different values.
-    X_ACCEL = array.array('B')
-    Y_ACCEL = array.array('B')
-
-    for x in range(128):
-        if x <= DEADZONE:
-            # Dead zone around center to fix drift.
-            # Joysticks do not alway report (x=0,y=0) when the stick is released.
-            # When this happens the cursor moves slowly when it should not be moving.
-            # This is sometimes called drifting. Drifting is fixed by treating
-            # joystick values between -DEADZONE to +DEADZONE as 0. If the cursor is
-            # still drifting increase the value of DEADZONE.
-            X_ACCEL.append(0)
-            Y_ACCEL.append(0)
-        else:
-            X_ACCEL.append(int((math.pow(x/127.0, X_SPEED) * 127) + 0.5))
-            Y_ACCEL.append(int((math.pow(x/127.0, Y_SPEED) * 127) + 0.5))
-            if x > 0:
-                if X_ACCEL[x] == 0:
-                    X_ACCEL[x] = 1
-                if Y_ACCEL[x] == 0:
-                    Y_ACCEL[x] = 1
-        if JS_DEBUG:
-            print(x, X_ACCEL[x], Y_ACCEL[x])
-
-    # The index into this array goes from 0 to 128 so make the last element
-    # have the same value as the element 127.
-    X_ACCEL.append(X_ACCEL[127])
-    Y_ACCEL.append(Y_ACCEL[127])
-
-    last_x_key = None
-    last_y_key = None
-
-    while True:
-        x, y = nc.joystick
-        if JS_DEBUG:
-            js_x = x
-            js_y = y
-        # Map the range 0 to 255 from the joystick to -127 to 128 for the mouse.
-        x = x - 127
-        y = -(y - 127)
-
-        if x < 0:
-            x = -X_ACCEL[abs(x)]
-        else:
-            x = X_ACCEL[abs(x)]
-
-        if y < 0:
-            y = -Y_ACCEL[abs(y)]
-        else:
-            y = Y_ACCEL[abs(y)]
-        if JS_DEBUG:
-            sensitivity_x = x
-            sensitivity_y = y
-
-        if 10 < x:
-            last_x_key = Keycode.RIGHT_ARROW
-            kbd.press(Keycode.RIGHT_ARROW)
-        elif -10 > x:
-            last_x_key = Keycode.LEFT_ARROW
-            kbd.press(Keycode.LEFT_ARROW)
-        elif None != last_x_key:
-            kbd.release(last_x_key)
-            last_x_key = None
-
-        if 10 < y:
-            last_y_key = Keycode.DOWN_ARROW
-            kbd.press(Keycode.DOWN_ARROW)
-        elif -10 > y:
-            last_y_key = Keycode.UP_ARROW
-            kbd.press(Keycode.UP_ARROW)
-        elif None != last_y_key:
-            kbd.release(last_y_key)
-            last_y_key = None
-
-        if nc.buttons.C:
-            kbd.press(Keycode.A)
-        else:
-            kbd.release(Keycode.A)
-
-        if nc.buttons.Z:
-            kbd.send(Keycode.B)
-        else:
-            kbd.release(Keycode.B)
-
-        pixel.fill((0, 255, 0))
+            last_x = mouse_x if abs(mouse_x) > 0 else 0
+            last_y = mouse_y if abs(mouse_y) > 0 else 0
+                
+            # Use accelerometer for scrolling if enabled
+            scroll_y = 0
+            if scroll_enabled and abs(delta_ay) > ACCEL_THRESHOLD:
+                scroll_y = int(-(delta_ay - (ACCEL_THRESHOLD if delta_ay > 0 else -ACCEL_THRESHOLD)) * SCROLL_SCALE)
+            
+            if JS_DEBUG:
+                print(f"Mouse - Joy: ({x}, {y}) Move: ({mouse_x}, {mouse_y}) Scroll: {scroll_y}")
+            
+            # Apply movements
+            if mouse_x != 0 or mouse_y != 0:
+                mouse.move(mouse_x, mouse_y)
+            if scroll_y != 0:
+                mouse.move(0, 0, scroll_y)
+            
+            # Handle buttons (only if not both pressed)
+            if not both_pressed:
+                if nc.buttons.C:
+                    mouse.press(Mouse.LEFT_BUTTON)
+                else:
+                    mouse.release(Mouse.LEFT_BUTTON)
+                if nc.buttons.Z:
+                    mouse.press(Mouse.RIGHT_BUTTON)
+                else:
+                    mouse.release(Mouse.RIGHT_BUTTON)
+            
+            # Update LED color based on mode
+            if scroll_enabled:
+                pixel.fill((0, 255, 0))  # Green for normal mode with scroll
+            else:
+                pixel.fill((0, 0, 255))  # Blue for normal mode without scroll
+            
+        except Exception as e:
+            print(f"Error in mouse handling: {e}")
+            pixel.fill((255, 0, 0))
+            time.sleep(0.1)
 
 def handleJoystick():
-
     js = Joystick(usb_hid.devices)
-
+    
     while True:
         x, y = nc.joystick
         y = 255 - y
+        print(f"X: {x}, Y: {y}")
         js.move_joysticks(x, y)
+        
 
         if nc.buttons.Z:
             js.press_buttons(1)
@@ -226,22 +179,67 @@ def handleJoystick():
 
         pixel.fill((0, 255, 0))
 
+def handleKeyboard():
+    kbd = Keyboard(usb_hid.devices)
+
+    last_x_key = None
+    last_y_key = None
+
+    while True:
+        x, y = nc.joystick
+        x = x - 127
+        y = -(y - 127)
+
+        if 15 < x:
+            last_x_key = Keycode.RIGHT_ARROW
+            kbd.press(Keycode.RIGHT_ARROW)
+        elif -15 > x:
+            last_x_key = Keycode.LEFT_ARROW
+            kbd.press(Keycode.LEFT_ARROW)
+        elif None != last_x_key:
+            kbd.release(last_x_key)
+            last_x_key = None
+
+        if 15 < y:
+            last_y_key = Keycode.DOWN_ARROW
+            kbd.press(Keycode.DOWN_ARROW)
+        elif -15 > y:
+            last_y_key = Keycode.UP_ARROW
+            kbd.press(Keycode.UP_ARROW)
+        elif None != last_y_key:
+            kbd.release(last_y_key)
+            last_y_key = None
+
+        if nc.buttons.C:
+            kbd.press(Keycode.A)
+        else:
+            kbd.release(Keycode.A)
+
+        if nc.buttons.Z:
+            kbd.press(Keycode.B)
+        else:
+            kbd.release(Keycode.B)
+
+        pixel.fill((0, 255, 0))
+
 pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 pixel.brightness = 0.01
 
 while True:
     try:
-            
         i2c = board.I2C()
         i2c.try_lock()
         i2c.scan()
         i2c.unlock()
 
         nc = adafruit_nunchuk.Nunchuk(i2c)
+        print("Nunchuk initialized")
 
         with open("config.json") as f:
             data = f.read()
             config = json.loads(data)
+            print(f"Mode: {config['type']}")
+            
             if "joystick" == config["type"]:
                 handleJoystick()
             elif "mouse" == config["type"]:
@@ -252,7 +250,9 @@ while True:
     except RuntimeError as e:
         pixel.fill((255, 0, 0))
         print("Error: ", e)
+        time.sleep(1)
         
     except OSError as e:
         pixel.fill((0, 0, 255))
         print("Error: ", e)
+        time.sleep(1)
