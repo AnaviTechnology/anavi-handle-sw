@@ -18,9 +18,7 @@ Make sure that you have ``circup`` installed in your Python environment. On Ubun
 
 ```
 sudo apt update
-sudo apt install python3-pip
-sudo apt install python3-virtualenv
-sudo apt install python3.12-venv
+sudo apt install -y python3-pip python3-virtualenv python3-venv
 python3 -m venv test_env ~/env
 source ~/env/bin/activate
 ```
